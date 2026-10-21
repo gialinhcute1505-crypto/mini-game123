@@ -3,375 +3,158 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Piggy Bird - Heo Bay Lượn</title>
+    <title>Flappy Bird Lớp 8 Siêu Cấp</title>
     <style>
-        body {
-            margin: 0;
-            background-color: #222;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            font-family: 'Segoe UI', Arial, sans-serif;
-            color: white;
-            overflow: hidden;
-            user-select: none;
-        }
-        #gameContainer {
-            position: relative;
-        }
-        canvas {
-            border: 4px solid #fff;
-            border-radius: 8px;
-            background-color: #70c5ce;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-            cursor: pointer;
-        }
-        #info {
-            position: absolute;
-            top: -40px;
-            left: 0;
-            width: 100%;
-            display: flex;
-            justify-content: space-between;
-            font-size: 20px;
-            font-weight: bold;
-        }
+        body { background-color: #1a1a1a; color: white; font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 20px; }
+        .container { max-width: 400px; margin: 0 auto; padding: 10px; background: #2d2d2d; border-radius: 10px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+        .stats { display: flex; justify-content: space-between; font-weight: bold; font-size: 16px; margin-bottom: 10px; padding: 0 10px; }
+        canvas { background: #4ec0ca; display: block; margin: 0 auto; border-radius: 5px; border: 2px solid #fff; cursor: pointer; }
+        .instruction { font-size: 13px; color: #aaa; margin-top: 10px; }
+        button { background: #1f883d; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; margin-top: 10px; display: none; font-size: 16px; }
     </style>
 </head>
 <body>
-
-<div id="gameContainer">
-    <div id="info">
-        <span id="scoreText">Điểm: 0</span>
-        <span id="levelText">Độ khó: 1</span>
+    <div class="container">
+        <div class="stats">
+            <div>Điểm: <span id="scoreText">0</span></div>
+            <div>Độ khó: <span id="levelText">1</span></div>
+        </div>
+        <canvas id="gameCanvas" width="320" height="480"></canvas>
+        <div class="instruction">Bấm chuột vào khung game hoặc nhấn phím CÁCH (Space) để chim bay lên!</div>
+        <button id="restartBtn" onclick="resetGame()">Chơi lại từ đầu</button>
     </div>
-    <canvas id="gameCanvas" width="400" height="600"></canvas>
-</div>
 
-<script>
-const canvas = document.getElementById("gameCanvas");
-const ctx = canvas.getContext("2d");
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        const scoreText = document.getElementById("scoreText");
+        const levelText = document.getElementById("levelText");
+        const restartBtn = document.getElementById("restartBtn");
 
-// --- SỬA LỖI ÂM THANH (Khởi tạo an toàn) ---
-let audioCtx = null;
-
-function initAudio() {
-    if (!audioCtx) {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    }
-    if (audioCtx.state === 'suspended') {
-        audioCtx.resume();
-    }
-}
-
-function playSound(type) {
-    try {
-        initAudio();
-        if (!audioCtx) return;
-
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-
-        if (type === 'jump') {
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(400, audioCtx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.15);
-            gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-            gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.15);
-            osc.start();
-            osc.stop(audioCtx.currentTime + 0.15);
-        } else if (type === 'score') {
-            osc.type = 'triangle';
-            osc.frequency.setValueAtTime(550, audioCtx.currentTime);
-            osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.08);
-            gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-            gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.25);
-            osc.start();
-            osc.stop(audioCtx.currentTime + 0.25);
-        } else if (type === 'hit') {
-            osc.type = 'sawtooth';
-            osc.frequency.setValueAtTime(160, audioCtx.currentTime);
-            osc.frequency.linearRampToValueAtTime(50, audioCtx.currentTime + 0.4);
-            gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-            gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.4);
-            osc.start();
-            osc.stop(audioCtx.currentTime + 0.4);
-        }
-    } catch (e) {
-        console.log("Trình duyệt chặn âm thanh trước tương tác.");
-    }
-}
-
-// --- BIẾN TRÒ CHƠI ---
-let gameState = "START"; 
-let score = 0;
-let level = 1;
-
-let gameSpeed = 2.2; 
-let pipeGap = 160; 
-const minPipeGap = 110; 
-const maxSpeed = 5.5; 
-
-// --- ĐỐI TƯỢNG HEO ---
-const pig = {
-    x: 90,
-    y: 250,
-    radius: 18,
-    gravity: 0.24,
-    velocity: 0,
-    jump: 5.2,
-    wingAngle: 0,
-    
-    draw() {
-        ctx.save();
-        ctx.translate(this.x, this.y);
+        // Cấu hình Chim
+        let bird = { x: 50, y: 150, width: 34, height: 24, gravity: 0.25, jump: 5, velocity: 0 };
         
-        let rotation = Math.min(Math.PI / 4, Math.max(-Math.PI / 7, this.velocity * 0.05));
-        ctx.rotate(rotation);
+        // Cấu hình Ống cống
+        let pipes = [];
+        let pipeWidth = 52;
+        let pipeGap = 120; 
+        let pipeSpeed = 2;
+        let frameCount = 0;
+        let score = 0;
+        let gameOver = false;
 
-        // Cánh thiên thần
-        ctx.fillStyle = "#FFFFFF";
-        ctx.save();
-        ctx.translate(-10, -5);
-        ctx.rotate(this.wingAngle);
-        ctx.beginPath();
-        ctx.ellipse(0, 0, 14, 7, -Math.PI/4, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-
-        // Thân heo hồng
-        ctx.fillStyle = "#FFB6C1"; 
-        ctx.beginPath();
-        ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // Tai heo
-        ctx.fillStyle = "#FF99AA";
-        ctx.beginPath();
-        ctx.moveTo(-10, -12);
-        ctx.lineTo(-2, -22);
-        ctx.lineTo(5, -14);
-        ctx.fill();
-
-        // Mũi heo đặc trưng
-        ctx.fillStyle = "#FF8899";
-        ctx.beginPath();
-        ctx.ellipse(12, 3, 7, 5, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "#D15F6F";
-        ctx.beginPath();
-        ctx.arc(10, 3, 1.5, 0, Math.PI * 2);
-        ctx.arc(14, 3, 1.5, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Mắt tròn xoe
-        ctx.fillStyle = "#000000";
-        ctx.beginPath();
-        ctx.arc(6, -5, 2.5, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "#FFFFFF";
-        ctx.beginPath();
-        ctx.arc(7, -6, 0.8, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Má hồng đáng yêu
-        ctx.fillStyle = "#FF8899";
-        ctx.beginPath();
-        ctx.arc(2, 4, 3, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.restore();
-    },
-    
-    update() {
-        if (gameState === "PLAYING") {
-            this.velocity += this.gravity;
-            this.y += this.velocity;
-            
-            this.wingAngle = Math.sin(Date.now() * 0.18) * 0.6;
-
-            if (this.y + this.radius >= canvas.height) {
-                this.y = canvas.height - this.radius;
-                gameOver();
-            }
-            if (this.y - this.radius <= 0) {
-                this.y = this.radius;
-                this.velocity = 0;
-            }
-        } else {
-            this.y = 250 + Math.sin(Date.now() * 0.005) * 12;
-            this.wingAngle = Math.sin(Date.now() * 0.005) * 0.3;
+        function createPipe() {
+            let minHeight = 50;
+            let maxHeight = canvas.height - pipeGap - minHeight;
+            let height = Math.floor(Math.random() * (maxHeight - minHeight + 1)) + minHeight;
+            pipes.push({ x: canvas.width, top: height, bottom: canvas.height - height - pipeGap, passed: false });
         }
-    }
-};
 
-// --- HỆ THỐNG ỐNG ---
-let pipes = [];
+        function drawBird() {
+            // Thân chim màu vàng
+            ctx.fillStyle = "#f1c40f";
+            ctx.fillRect(bird.x, bird.y, bird.width, bird.height);
+            // Mỏ chim màu cam
+            ctx.fillStyle = "#e67e22";
+            ctx.fillRect(bird.x + bird.width - 8, bird.y + 6, 8, 8);
+            // Mắt chim
+            ctx.fillStyle = "#000";
+            ctx.fillRect(bird.x + bird.width - 12, bird.y + 4, 4, 4);
+        }
 
-function createPipe() {
-    let topHeight = Math.floor(Math.random() * (canvas.height - pipeGap - 120)) + 60;
-    pipes.push({
-        x: canvas.width,
-        top: topHeight,
-        bottom: canvas.height - topHeight - pipeGap,
-        width: 65,
-        passed: false
-    });
-}
+        function drawPipes() {
+            ctx.fillStyle = "#2ecc71"; 
+            pipes.forEach(pipe => {
+                // Ống trên
+                ctx.fillRect(pipe.x, 0, pipeWidth, pipe.top);
+                ctx.strokeStyle = "#27ae60";
+                ctx.strokeRect(pipe.x, 0, pipeWidth, pipe.top);
 
-function drawPipes() {
-    pipes.forEach(pipe => {
-        ctx.fillStyle = "#73BF2E";
-        ctx.fillRect(pipe.x, 0, pipe.width, pipe.top);
-        ctx.fillStyle = "#528022";
-        ctx.fillRect(pipe.x - 3, pipe.top - 24, pipe.width + 6, 24);
+                // Ống dưới
+                ctx.fillRect(pipe.x, canvas.height - pipe.bottom, pipeWidth, pipe.bottom);
+                ctx.strokeRect(pipe.x, canvas.height - pipe.bottom, pipeWidth, pipe.bottom);
+            });
+        }
 
-        ctx.fillStyle = "#73BF2E";
-        ctx.fillRect(pipe.x, canvas.height - pipe.bottom, pipe.width, pipe.bottom);
-        ctx.fillStyle = "#528022";
-        ctx.fillRect(pipe.x - 3, canvas.height - pipe.bottom, pipe.width + 6, 24);
-    });
-}
+        function update() {
+            if (gameOver) return;
 
-function updatePipes() {
-    if (gameState !== "PLAYING") return;
+            bird.velocity += bird.gravity;
+            bird.y += bird.velocity;
 
-    if (pipes.length === 0 || pipes[pipes.length - 1].x <= canvas.width - 220) {
-        createPipe();
-    }
+            if (bird.y + bird.height >= canvas.height || bird.y <= 0) {
+                endGame();
+            }
 
-    pipes.forEach(pipe => {
-        pipe.x -= gameSpeed;
+            if (frameCount % 100 === 0) { createPipe(); }
+            frameCount++;
 
-        if (!pipe.passed && pipe.x + pipe.width < pig.x) {
-            score++;
-            pipe.passed = true;
-            playSound('score');
-            document.getElementById("scoreText").innerText = "Điểm: " + score;
-            
-            if (score % 5 === 0) {
-                level++;
-                document.getElementById("levelText").innerText = "Độ khó: " + level;
-                if (gameSpeed < maxSpeed) gameSpeed += 0.5;
-                if (pipeGap > minPipeGap) pipeGap -= 10;
+            pipes.forEach(pipe => {
+                pipe.x -= pipeSpeed;
+
+                if (!pipe.passed && pipe.x + pipeWidth < bird.x) {
+                    score++;
+                    pipe.passed = true;
+                    scoreText.innerText = score;
+                    levelText.innerText = Math.floor(score / 5) + 1;
+                    pipeSpeed = 2 + Math.floor(score / 5) * 0.5; 
+                }
+
+                if (bird.x < pipe.x + pipeWidth && bird.x + bird.width > pipe.x &&
+                    (bird.y < pipe.top || bird.y + bird.height > canvas.height - pipe.bottom)) {
+                    endGame();
+                }
+            });
+
+            if (pipes.length > 0 && pipes[0].x < -pipeWidth) { pipes.shift(); }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawPipes();
+            drawBird();
+
+            if (gameOver) {
+                ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = "#ff4757";
+                ctx.font = "bold 24px Arial";
+                ctx.fillText("GAME OVER", canvas.width/2 - 70, canvas.height/2);
             }
         }
 
-        let pipeLeft = pipe.x;
-        let pipeRight = pipe.x + pipe.width;
-
-        if (pig.x + pig.radius - 3 > pipeLeft && pig.x - pig.radius + 3 < pipeRight) {
-            if (pig.y - pig.radius + 3 < pipe.top || pig.y + pig.radius - 3 > canvas.height - pipe.bottom) {
-                gameOver();
-            }
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
         }
-    });
 
-    pipes = pipes.filter(pipe => pipe.x + pipe.width > 0);
-}
-
-function gameOver() {
-    if (gameState === "PLAYING") {
-        gameState = "GAMEOVER";
-        playSound('hit');
-    }
-}
-
-function resetGame() {
-    score = 0;
-    level = 1;
-    gameSpeed = 2.2;
-    pipeGap = 160;
-    pig.y = 250;
-    pig.velocity = 0;
-    pipes = [];
-    document.getElementById("scoreText").innerText = "Điểm: " + score;
-    document.getElementById("levelText").innerText = "Độ khó: " + level;
-    gameState = "PLAYING";
-}
-
-// --- XỬ LÝ SỰ KIỆN CLICK / PHÍM ---
-function handleJump() {
-    initAudio(); // Kích hoạt âm thanh ngay khi người dùng chạm vào màn hình
-    
-    if (gameState === "START") {
-        resetGame();
-    } else if (gameState === "PLAYING") {
-        pig.velocity = -pig.jump;
-        playSound('jump');
-    } else if (gameState === "GAMEOVER") {
-        resetGame();
-    }
-}
-
-window.addEventListener("keydown", (e) => {
-    if (e.code === "Space" || e.code === "ArrowUp") {
-        e.preventDefault(); 
-        handleJump();
-    }
-});
-
-canvas.addEventListener("mousedown", (e) => {
-    handleJump();
-});
-
-canvas.addEventListener("touchstart", (e) => {
-    e.preventDefault();
-    handleJump();
-});
-
-// --- UI CHỮ HIỂN THỊ ---
-function drawUI() {
-    let blink = Math.floor(Date.now() / 500) % 2 === 0; // Tạo hiệu ứng chữ nhấp nháy
-    
-    if (gameState === "START") {
-        ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
-        ctx.fillStyle = "#FFB6C1";
-        ctx.font = "bold 32px Arial";
-        ctx.textAlign = "center";
-        ctx.fillText("PIGGY BIRD", canvas.width / 2, 180);
-        
-        ctx.fillStyle = "white";
-        ctx.font = "16px Arial";
-        ctx.fillText("Hãy click hoặc ấn phím để bắt đầu", canvas.width / 2, 230);
-        
-        if (blink) {
-            ctx.fillStyle = "#FFFF00";
-            ctx.font = "bold 20px Arial";
-            ctx.fillText("CLICK VÀO ĐÂY ĐỂ CHƠI!", canvas.width / 2, 360);
+        function jumpAction() {
+            if (!gameOver) { bird.velocity = -bird.jump; }
         }
-    }
-    
-    if (gameState === "GAMEOVER") {
-ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
-ctx.fillRect(0, 0, canvas.width, canvas.height);
-ctx.fillStyle = "#FF5555";
-ctx.font = "bold 36px Arial";
-ctx.textAlign = "center";
-ctx.fillText("BẠN ĐÃ THUA!", canvas.width / 2, 220);
-ctx.fillStyle = "white";
-ctx.font = "20px Arial";
-ctx.fillText("Điểm đạt được: " + score, canvas.width / 2, 270);
-if (blink) {
-ctx.fillStyle = "#00FF00";
-ctx.font = "bold 18px Arial";
-ctx.fillText("CLICK ĐỂ CHƠI LẠI NGAY", canvas.width / 2, 360);
-}
-}
-}
-// --- VÒNG LẶP ---
-function loop() {
-ctx.clearRect(0, 0, canvas.width, canvas.height);
-updatePipes();
-drawPipes();
-pig.update();
-pig.draw();
-drawUI();
-requestAnimationFrame(loop);
-}
-loop();
+
+        function endGame() {
+            gameOver = true;
+            restartBtn.style.display = "inline-block";
+        }
+
+        // Đóng góp từ học sinh lớp 8 sửa nút chơi lại
+        function resetGame() {
+            bird = { x: 50, y: 150, width: 34, height: 24, gravity: 0.25, jump: 5, velocity: 0 };
+            pipes = [];
+            frameCount = 0;
+            score = 0;
+            pipeSpeed = 2;
+            gameOver = false;
+            scoreText.innerText = score;
+            levelText.innerText = 1;
+            restartBtn.style.display = "none";
+        }
+
+        window.addEventListener("keydown", (e) => { if(e.code === "Space") jumpAction(); });
+        canvas.addEventListener("click", jumpAction);
+
+        gameLoop();
+    </script>
+</body>
+</html>

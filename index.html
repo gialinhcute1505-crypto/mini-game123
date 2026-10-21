@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Piggy Bird - Heo Bay Lượn</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #222;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: Arial, sans-serif;
+            color: white;
+            overflow: hidden;
+        }
+        #gameContainer {
+            position: relative;
+        }
+        canvas {
+            border: 4px solid #fff;
+            border-radius: 8px;
+            background-color: #70c5ce;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        #info {
+            position: absolute;
+            top: -40px;
+            left: 0;
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            font-size: 18px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+<div id="gameContainer">
+    <div id="info">
+        <span id="scoreText">Điểm: 0</span>
+        <span id="levelText">Độ khó: 1</span>
+    </div>
+    <canvas id="gameCanvas" width="400" height="600"></canvas>
+</div>
+
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+
+// --- HỆ THỐNG ÂM THANH (Web Audio API - Không cần file .mp3 bên ngoài) ---
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playSound(type) {
+    // Trình duyệt chặn âm thanh nếu chưa tương tác
+    if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+    
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+
+    if (type === 'jump') {
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(400, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.1);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.1);
+    } else if (type === 'score') {
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(600, audioCtx.currentTime);
+        osc.frequency.setValueAtTime(900, audioCtx.currentTime + 0.08);
+        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+        gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.2);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.2);
+    } else if (type === 'hit') {
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+        osc.frequency.linearRampToValueAtTime(40, audioCtx.currentTime + 0.4);
+        gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
+        gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.4);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.4);
+    }
+}
+
+// --- BIẾN TRÒ CHƠI ---
+let gameState = "START"; // START, PLAYING, GAMEOVER
+let score = 0;
+let level = 1;
+
+// Thông số độ khó ban đầu
+let gameSpeed = 2; 
+let pipeGap = 160; // Khoảng trống giữa 2 ống
+const minPipeGap = 100; // Giới hạn hẹp nhất của ống
+const maxSpeed = 5; // Giới hạn tốc độ nhanh nhất
+
+// --- ĐỐI TƯỢNG HEO (THAY CHO CHIM) ---
+const pig = {
+    x: 80,
+    y: 250,
+    radius: 18,
+    gravity: 0.25,
+    velocity: 0,
+    jump: 5.5,
+    wingAngle: 0,
+    
+    draw() {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        
+        // Độ nghiêng theo vận tốc rơi
+        let rotation = Math.min(Math.PI / 4, Math.max(-Math.PI / 7, this.velocity * 0.04));
+        ctx.rotate(rotation);
+
+        // 1. Vẽ Đôi cánh thiên thần (Đang đập cánh)
+        ctx.fillStyle = "#FFFFFF";
+        ctx.save();
+        ctx.translate(-10, -5);
+        ctx.rotate(this.wingAngle);
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 14, 7, -Math.PI/4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        // 2. Thân chú heo (Hình tròn màu hồng)
+        ctx.fillStyle = "#FFB6C1"; 
+        ctx.beginPath();
+        ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Tai heo
+        ctx.fillStyle = "#FF99AA";
+        ctx.beginPath();
+        ctx.moveTo(-10, -12);
+        ctx.lineTo(-2, -22);
+        ctx.lineTo(5, -14);
+        ctx.fill();
+
+        // 3. Mũi heo (Đặc trưng của heo)
+        ctx.fillStyle = "#FF8899";
+        ctx.beginPath();
+        ctx.ellipse(12, 3, 7, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // 2 lỗ mũi
+        ctx.fillStyle = "#D15F6F";
+        ctx.beginPath();
+        ctx.arc(10, 3, 1.5, 0, Math.PI * 2);
+        ctx.arc(14, 3, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 4. Mắt
+        ctx.fillStyle = "#000000";
+        ctx.beginPath();
+        ctx.arc(6, -5, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+        // Lòng trắng nhỏ
+        ctx.fillStyle = "#FFFFFF";
+        ctx.beginPath();
+        ctx.arc(7, -6, 0.8, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 5. Má hồng đuôi nheo
+        ctx.fillStyle = "#FF8899";
+        ctx.beginPath();
+        ctx.arc(2, 4, 3, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+    },
+    
+    update() {
+        if (gameState === "PLAYING") {
+            this.velocity += this.gravity;
+            this.y += this.velocity;
+            
+            // Hiệu ứng đập cánh dựa trên vận tốc
+            this.wingAngle = Math.sin(Date.now() * 0.15) * 0.6;
+
+            // Chạm đất
+            if (this.y + this.radius >= canvas.height) {
+                this.y = canvas.height - this.radius;
+                gameOver();
+            }
+            // Chạm trần
+            if (this.y - this.radius <= 0) {
+                this.y = this.radius;
+                this.velocity = 0;
+            }
+        } else {
+            // Hiệu ứng heo bay bồng bềnh ở màn hình chờ
+            this.y = 250 + Math.sin(Date.now() * 0.005) * 10;
+            this.wingAngle = Math.sin(Date.now() * 0.005) * 0.3;
+        }
+    }
+};
+
+// --- ĐỐI TƯỢNG ỐNG NƯỚC ---
+let pipes = [];
+
+function createPipe() {
+    let topHeight = Math.floor(Math.random() * (canvas.height - pipeGap - 100)) + 50;
+    pipes.push({
+        x: canvas.width,
+        top: topHeight,
+        bottom: canvas.height - topHeight - pipeGap,
+        width: 60,
+        passed: false
+    });
+}
+
+function drawPipes() {
+    pipes.forEach(pipe => {
+        // Màu ống nước xanh lá xi măng cổ điển
+        ctx.fillStyle = "#73BF2E";
+        
+        // Ống trên
+        ctx.fillRect(pipe.x, 0, pipe.width, pipe.top);
+        // Gờ ống trên
+        ctx.fillStyle = "#528022";
+        ctx.fillRect(pipe.x - 3, pipe.top - 20, pipe.width + 6, 20);
+
+        // Ống dưới
+        ctx.fillStyle = "#73BF2E";
+        ctx.fillRect(pipe.x, canvas.height - pipe.bottom, pipe.width, pipe.bottom);
+        // Gờ ống dưới
+        ctx.fillStyle = "#528022";
+        ctx.fillRect(pipe.x - 3, canvas.height - pipe.bottom, pipe.width + 6, 20);
+    });
+}
+
+function updatePipes() {
+    if (gameState !== "PLAYING") return;
+
+    // Thêm ống mới
+    if (pipes.length === 0 || pipes[pipes.length - 1].x <= canvas.width - 200) {
+        createPipe();
+    }
+
+    pipes.forEach(pipe => {
+        pipe.x -= gameSpeed;
+
+        // Tính điểm khi heo vượt qua ống thành công
+        if (!pipe.passed && pipe.x + pipe.width < pig.x) {
+            score++;
+            pipe.passed = true;
+            playSound('score');
+            document.getElementById("scoreText").innerText = "Điểm: " + score;
+            
+            // TĂNG ĐỘ KHÓ THEO MỖI 5 ĐIỂM
+            if (score % 5 === 0) {
+                level++;
+                document.getElementById("levelText").innerText = "Độ khó: " + level;
+                if (gameSpeed < maxSpeed) gameSpeed += 0.4; // Tăng tốc độ di chuyển
+                if (pipeGap > minPipeGap) pipeGap -= 10;   // Thu hẹp khoảng cách ống
+            }
+        }
+
+        // Xử lý va chạm (AABB vs Circle)
+        let pipeLeft = pipe.x;
+        let pipeRight = pipe.x + pipe.width;
+        let pipeTopBottom = pipe.top;
+        let pipeBottomTop = canvas.height - pipe.bottom;
+
+        // Kiểm tra va chạm với ống trên hoặc ống dưới
+        if (pig.x + pig.radius - 3 > pipeLeft && pig.x - pig.radius + 3 < pipeRight) {
+            if (pig.y - pig.radius + 3 < pipeTopBottom || pig.y + pig.radius - 3 > pipeBottomTop) {
+                gameOver();
+            }
+        }
+    });
+
+    // Xóa ống cũ đã chạy khỏi màn hình
+    pipes = pipes.filter(pipe => pipe.x + pipe.width > 0);
+}
+
+// --- TRẠNG THÁI GAME ---
+function gameOver() {
+    if (gameState === "PLAYING") {
+        gameState = "GAMEOVER";
+        playSound('hit');
+    }
+}
+
+function resetGame() {
+    score = 0;
+    level = 1;
+    gameSpeed = 2;
+    pipeGap = 160;
+    pig.y = 250;
+    pig.velocity = 0;
+    pipes = [];
+    document.getElementById("scoreText").innerText = "Điểm: " + score;
+    document.getElementById("levelText").innerText = "Độ khó: " + level;
+    gameState = "PLAYING";
+}
+
+// --- ĐIỀU KHIỂN (CLICK HOẶC PHÍM TRẮNG) ---
+function handleJump() {
+    if (gameState === "START") {
+        resetGame();
+    } else if (gameState === "PLAYING") {
+        pig.velocity = -pig.jump;
+        playSound('jump');
+    } else if (gameState === "GAMEOVER") {
+        resetGame();
+    }
+}
+
+window.addEventListener("keydown", (e) => {
+    if (e.code === "Space" || e.code === "ArrowUp") {
+        e.preventDefault(); // Tránh cuộn trang
+        handleJump();
+    }
+});
+
+canvas.addEventListener("touchstart", (e) => {
+    e.preventDefault();
+    handleJump();
+});
+
+canvas.addEventListener("mousedown", (e) => {
+    handleJump();
+});
+
+// --- VẼ GIAO DIỆN CHỮ ---
+function drawUI() {
+    if (gameState === "START") {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        ctx.fillStyle = "white";
+ctx.font = "bold 28px Arial";
+ctx.textAlign = "center";
+ctx.fillText("PIGGY BIRD", canvas.width / 2, 200);
+ctx.font = "18px Arial";
+ctx.fillText("Nhấn CÁCH hoặc Click để Bay", canvas.width / 2, 340);
+}
+if (gameState === "GAMEOVER") {
+ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+ctx.fillRect(0, 0, canvas.width, canvas.height);
+ctx.fillStyle = "#FF5555";
+ctx.font = "bold 32px Arial";
+ctx.textAlign = "center";
+ctx.fillText("GAME OVER", canvas.width / 2, 220);
+ctx.fillStyle = "white";
+ctx.font = "20px Arial";
+ctx.fillText("Tổng điểm của bạn: " + score, canvas.width / 2, 270);
+ctx.font = "16px Arial";
+ctx.fillText("Nhấn CÁCH hoặc Click để Chơi Lại", canvas.width / 2, 350);
+}
+}
+// --- VÒNG LẶP GAME (GAME LOOP) ---
+function loop() {
+ctx.clearRect(0, 0, canvas.width, canvas.height);
+// Cập nhật & Vẽ thực thể
+updatePipes();
+drawPipes();
+pig.update();
+pig.draw();
+// Vẽ UI đè lên trên cùng
+drawUI();
+requestAnimationFrame(loop);
+}
+// Bắt đầu vòng lặp game
+loop();
+
+### Các tính năng nổi bật của code này:
+1. **Độ khó thông minh**: Cứ sau khi bạn ghi được 5 điểm, `Độ khó (Level)` sẽ tăng lên. Lúc này ống nước sẽ lao về phía chú heo nhanh hơn (`gameSpeed` tăng) và khe hở giữa 2 ống thu nhỏ lại (`pipeGap` giảm), đòi hỏi người chơi phải lách cực kỳ khéo léo.
+2. **Hình ảnh chú heo dễ thương**: Chú heo được thiết kế hoàn toàn bằng các hàm đồ họa Canvas có sẵn (`arc`, `ellipse`), có đầy đủ mõm heo, lỗ mũi, tai heo vểnh lên, má hồng và đặc biệt là đôi cánh thiên thần màu trắng **đập cánh liên tục** theo nhịp bay.
+3. **Âm thanh không cần tải file**: Sử dụng thư viện âm thanh phần cứng `Web Audio API` tích hợp sẵn trong trình duyệt để tự động tổng hợp sóng âm thanh (tần số Hz) tạo ra các tiếng động vui nhộn theo thời gian thực mà không sợ bị lỗi tải file âm thanh `.mp3` chậm.
+
+<FollowUp>
+Nếu bạn muốn nâng cấp thêm trò chơi này, hãy cho tôi biết bạn có muốn bổ sung:
+* Hệ thống **lưu kỷ lục Điểm Cao Nhất (High Score)** không?
+* Thêm **hiệu ứng hạt (particles)** bung ra khi ăn điểm hoặc va chạm không?
+* Thay đổi **màu sắc bối cảnh thành ban đêm** khi độ khó tăng cao không?
+</FollowUp>
+
+<ActionUnit query="lập trình game flappy bird html5 javascript" placement="bottom" intent="informational" />
